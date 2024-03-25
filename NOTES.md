@@ -35,9 +35,85 @@ A kernel is a program that runs on the GPU.
 
 ### Memory
 
+| Memory    | Access | Scope             | Lifetime   | Speed        |
+|-----------|--------|-------------------|------------|--------------|
+| Global    | RW     | All threads + CPU | Persistent | Slow, cached |
+| Constant  | R      | All threads + CPU | Persistent | Slow, cached |
+| Texture   | R      | All threads + CPU | Persistent | Slow, cached |
+| Local     | RW     | Thread-local      | Thread     | Slow, cached |
+| Shared    | RW     | Block-local       | Block      | Fast         |
+| Registers | RW     | Thread-local      | Thread     | Fast         |
+
+#### Global Memory
+
+Global memory is readable and writeable from both the CPU and GPU threads.
+
+* Slower to acceses than shared memory and registers.
+* The `cudaMalloc`, `cudaFree`, etc. functions allow working with this memory.
+* Every byte is addressable
+* Persistent accross kernel calls
+
+#### Local memory
+
+Also part of the main memory of the GPU like global memory, so it's generally "slow."
+
+* Used automatically by the compiler when registers cannot be used (register spilling).
+* Arrays that aren't indexed with constants must use local memory since registers can't be addressed.
+* Thread-local scope
+* Cached in L1 and L2 cache, so register spilling may cause less slowdown on newer cards.
+
+#### Shared Memory
+
+Very fast (register speeds).
+
+* Shared between threads within each block (block-scope).
+* Successive dwords reside in different banks.
+* 16 banks in compute capability 1.0, 32 in compute capability 2.0
+* Fastest when all threads read either entirely different banks or the same value.
+* Used to enable fast communication between threads in a block.
+
+#### Caches
+
+On compute 2.0 and above, each multiprocessor has an L1 cache, and an L2 cache is shared between all multiprocessors.
+These are used by global and local memory.
+
+* The L1 cache is very fast, and can be used as shared memory.
+* L1 uses same bytes as shared memory.
+* L1 cache can be configured.
+  * Use as 48k shared memory with 16k L1 or 16k shared with 48k L1.
+* All global memory accesses go through the L2 cache, including those by the CPU.
+* You can turn off caching with a compiler option.
+
+#### Constant Memory
+
+* Part of the GPU's main memory
+* Has its own per-multiprocessor cache
+* Read-only in the GPU, R/W on the CPU
+* Very fast if all threads read the same address
+* Shared between all threads
+
+#### Texture Memory
+
+Also part of device memory like global, local and constant memory.
+
+* Has extra addressing tricks because it's designed for indexing / sampling a 2D image
+* Can interpolate values
+* Lower bandwidth than global memory's L1 cache
+* Shared between all threads
+* Per-thread caches prone to data races if threads mutate texture data
+  * NVIDIA says this is undefined behavior
+
+#### Registers
+
+Fastest memory access, used automatically by the compiler. Basically CPU registers.
+
+* GPUs, unlike CPUs, have thousands of registers.
+* Registers are thread-local.
+* Still, using fewer registers per thread can result in better performance.
+
 ## API
 
-* Kernels always return void
+* Kernels always return void.
   * Signature always starts with `__global__ void name` or `__device__ void name`
 
 * CUDA functions return a result enum. Check for `cudaSuccess` to handle errors.

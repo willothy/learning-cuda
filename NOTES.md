@@ -33,6 +33,8 @@ A kernel is launched as a collection of thread blocks called a Grid.
 
 A kernel is a program that runs on the GPU.
 
+### Memory
+
 ## API
 
 * Kernels always return void

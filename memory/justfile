@@ -1,0 +1,10 @@
+build_dir := "."
+
+build:
+    nvcc main.cu -o {{ build_dir }}/main
+
+run: build
+    {{ build_dir }}/main
+
+clean:
+    rm -f main

@@ -148,6 +148,19 @@ Fastest memory access, used automatically by the compiler. Basically CPU registe
 * Registers are thread-local.
 * Still, using fewer registers per thread can result in better performance.
 
+### Synchronization
+
+`__syncthreads()` is a function that acts as a barrier, and waits for all threads in the block to reach the callsite.
+
+```cuda
+__shared__ int i;
+i = 0;
+__syncthreads(); // without syncthreads we could end up with 0, 1, or 2.
+if (threadIdx.x == 0) i++;
+__syncthreads();
+if (threadIdx.x == 1) i++;
+```
+
 ## API
 
 * Kernels always return void.

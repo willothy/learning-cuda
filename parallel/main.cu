@@ -94,6 +94,89 @@ void Accelerated(float3 *points, int *indices, int count) {
   cudaFree(d_indices);
 }
 
+#define SHARED_MEM_BLOCK_SIZE 640
+
+__device__ const int blockSize = SHARED_MEM_BLOCK_SIZE;
+
+__global__ void AcceleratedSharedMemInternal(float3 *points, int *indices,
+                                             int count) {
+  __shared__ float3 sharedPoints[blockSize];
+
+  if (count <= 1) {
+    return;
+  }
+
+  int idx = threadIdx.x + blockIdx.x * blockDim.x;
+  // if (idx >= count) {
+  //   return;
+  // }
+
+  float3 thisPoint = points[idx];
+  float distToClosest = 3.40282e38f;
+  int closestIdx = -1;
+
+  // Copy global memory to shared memory
+  for (int current = 0; current < gridDim.x; current++) {
+    if (threadIdx.x + current * blockSize < count) {
+      sharedPoints[threadIdx.x] = points[threadIdx.x + current * blockSize];
+    }
+    // Ensure all threads have copied data to shared memory by this point.
+    __syncthreads();
+
+    for (int i = 0; i < blockSize; i++) {
+      float dist =
+          (thisPoint.x - sharedPoints[i].x) *
+              (thisPoint.x - sharedPoints[i].x) +
+          (thisPoint.y - sharedPoints[i].y) *
+              (thisPoint.y - sharedPoints[i].y) +
+          (thisPoint.z - sharedPoints[i].z) * (thisPoint.z - sharedPoints[i].z);
+      if (
+          //
+          (dist < distToClosest)
+          //
+          && (i + current * blockSize < count)
+          //
+          && (i + current * blockSize != idx)
+          //
+      ) {
+        distToClosest = dist;
+        closestIdx = i + current * blockSize;
+      }
+    }
+
+    // Ensure all threads have finished processing shared memory by this point
+    // and we can safely copy another block of data to shared memory.
+    __syncthreads();
+
+    indices[idx] = closestIdx;
+  }
+}
+
+void AcceleratedSharedMem(float3 *points, int *indices, int count) {
+  if (count <= 1) {
+    return;
+  }
+
+  float3 *d_points = tryCudaMalloc<float3>(count);
+  int *d_indices = tryCudaMalloc<int>(count);
+  if (d_points == nullptr || d_indices == nullptr) {
+    std::cerr << "cudaMalloc failed" << std::endl;
+    return;
+  }
+
+  cudaMemcpy(d_points, points, sizeof(float3) * count, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_indices, indices, sizeof(int) * count, cudaMemcpyHostToDevice);
+
+  AcceleratedSharedMemInternal<<<(count / SHARED_MEM_BLOCK_SIZE) + 1,
+                                 SHARED_MEM_BLOCK_SIZE>>>(d_points, d_indices,
+                                                          count);
+
+  cudaMemcpy(indices, d_indices, sizeof(int) * count, cudaMemcpyDeviceToHost);
+
+  cudaFree(d_points);
+  cudaFree(d_indices);
+}
+
 void GenerateRandomPoints(float3 *points, int count) {
   for (int i = 0; i < count; i++) {
     points[i].x = (float)((rand() % 10000) - 5000);
@@ -109,6 +192,7 @@ void Bench(const char *name, void (*fn_to_benchmark)(float3 *, int *, int),
   using std::chrono::duration_cast;
   using std::chrono::high_resolution_clock;
   using std::chrono::milliseconds;
+  using std::chrono::nanoseconds;
 
   int count = n_points;
 
@@ -128,7 +212,7 @@ void Bench(const char *name, void (*fn_to_benchmark)(float3 *, int *, int),
     fn_to_benchmark(points, indexOfClosest, count);
     auto t2 = high_resolution_clock::now();
 
-    auto result = duration_cast<milliseconds>(t2 - t1);
+    auto result = duration_cast<nanoseconds>(t2 - t1);
     if (result < fastest) {
       fastest = result;
     }
@@ -145,8 +229,12 @@ void Bench(const char *name, void (*fn_to_benchmark)(float3 *, int *, int),
   std::cout << "Number of points: " << n_points << std::endl;
   std::cout << "Trials: " << n_trials << std::endl;
   std::cout << "Total time: " << elapsed.count() << "ms" << std::endl;
-  std::cout << "Fastest: " << fastest.count() << "ms" << std::endl;
-  std::cout << "Average: " << average.count() << "ms" << std::endl;
+  std::cout << "Fastest: " << fastest.count() << "ms ("
+            << duration_cast<nanoseconds>(fastest).count() << "ns)"
+            << std::endl;
+  std::cout << "Average: " << average.count() << "ms ("
+            << duration_cast<nanoseconds>(average).count() << "ns)"
+            << std::endl;
   std::cout << std::endl;
 }
 
@@ -161,12 +249,22 @@ void Run() {
 
   Bench("Unaccelerated", Unaccelerated, points, N_POINTS, N_TRIALS, &indices);
   Bench("Accelerated", Accelerated, points, N_POINTS, N_TRIALS, &indices);
+  Bench("Accelerated with Shared Memory", AcceleratedSharedMem, points,
+        N_POINTS, N_TRIALS, &indices);
 
   for (int i = 0; i < N_POINTS; i++) {
-    if (indices[0][i] != indices[1][i]) {
-      std::cerr << "Mismatch at index " << i << std::endl;
-      std::cerr << "Unaccelerated: " << indices[0][i] << std::endl;
-      std::cerr << "Accelerated: " << indices[1][i] << std::endl;
+    for (int j = 0; j < indices.size(); j++) {
+      for (int k = 0; k < indices.size(); k++) {
+        if (j == k) {
+          continue;
+        }
+        if (indices[j][i] != indices[k][i]) {
+          std::cerr << "Mismatch at index " << i << std::endl;
+          std::cerr << "Indices " << j << " and " << k << " differ"
+                    << std::endl;
+          break;
+        }
+      }
     }
   }
 

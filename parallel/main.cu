@@ -24,11 +24,6 @@ static inline float distance_no_sqrt(float3 a, float3 b) {
           ((a.z - b.z) * (a.z - b.z)));
 }
 
-__device__ float kernel_distance_no_sqrt(float3 a, float3 b) {
-  return (((a.x - b.x) * (a.x - b.x)) + ((a.y - b.y) * (a.y - b.y)) +
-          ((a.z - b.z) * (a.z - b.z)));
-}
-
 namespace NearestNeighbors {
 // For a list of 3D points, find the nearest neighbor of each point.
 

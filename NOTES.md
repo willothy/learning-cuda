@@ -71,6 +71,43 @@ Very fast (register speeds).
 * 16 banks in compute capability 1.0, 32 in compute capability 2.0
 * Fastest when all threads read either entirely different banks or the same value.
 * Used to enable fast communication between threads in a block.
+* Block-local scope.
+
+Created shared memory with the `__shared__` keyword. Arrays must be sized at compile time, no dynamic allocation.
+
+```cuda
+__global__ void foo(int* a, int* b) {
+  __shared__ int smem[1024];
+}
+```
+
+Or, use `extern` with `__shared__` to declare a dynamic array whose size can be
+dynamically determined by kernel launch configuration.
+
+```cuda
+__global__ void foo(int* a, int* b) {
+  extern __shared__ int smem[];
+}
+
+int main() {
+  int a = 3, b = 2;
+  int *d_a, *d_b;
+
+  cudaMalloc(&d_a, sizeof(int));
+  cudaMalloc(&d_b, sizeof(int));
+
+  cudaMemcpy(d_a, &a, sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_b, &b, sizeof(int), cudaMemcpyHostToDevice);
+
+  // Third parameter is bytes to allocate per block
+  foo<<<1, 1, 1024>>>
+
+  cudaFree(d_a);
+  cudaFree(d_b);
+
+  return 0;
+}
+```
 
 #### Caches
 
